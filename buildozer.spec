@@ -18,8 +18,7 @@ android.arch = arm64-v8a, armeabi-v7a
 
 # Зафиксировать версию python-for-android
 
-p4a.source = https://github.com/kivy/python-for-android.git
-p4a.tag = 2024.01.13
+p4a.branch = v2024.01.21
 
 # Ориентация
 orientation = all
