@@ -54,21 +54,31 @@ jobs:
         run: |
           pip install buildozer "cython<3"
 
-      - name: Pre-accept Android SDK licenses
+      - name: Prepare Android SDK and accept licenses
         run: |
           SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk
           CMDLINE_DIR=$SDK_ROOT/cmdline-tools/latest
 
           mkdir -p $CMDLINE_DIR
 
+          # Скачиваем commandlinetools (версия совместима с Android SDK)
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
           unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
 
           mv /tmp/cmdline-tools/cmdline-tools/* $CMDLINE_DIR/
 
-          yes | $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT --licenses
+          # Принимаем лицензии, используя правильную Java
+          JAVA_HOME=$JAVA_HOME PATH=$JAVA_HOME/bin:$PATH \
+            yes | $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT --licenses
+
+          # Устанавливаем обязательные компоненты SDK
+          JAVA_HOME=$JAVA_HOME PATH=$JAVA_HOME/bin:$PATH \
+            $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT "platform-tools" "platforms;android-31" "build-tools;30.0.3"
 
       - name: Build APK
+        env:
+          ANDROID_SDK_ROOT: /home/runner/.buildozer/android/platform/android-sdk
+          ANDROID_HOME: /home/runner/.buildozer/android/platform/android-sdk
         run: |
           buildozer -v android debug
 
