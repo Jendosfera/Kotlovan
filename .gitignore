@@ -1,0 +1,8 @@
+build/
+dist/
+bin/
+.buildozer/
+__pycache__/
+*.pyc
+*.apk
+.kv/
