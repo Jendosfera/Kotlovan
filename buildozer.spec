@@ -1,69 +1,45 @@
-name: Build Android APK
+[app]
 
-on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+# Название приложения
+title = Котлован
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
+# Пакет
+package.name = kotlovan
+package.domain = org.kotlovan
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+# Исходный код
+source.dir = .
+source.include_exts = py,png,jpg,jpeg,bmp,gif,json
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+# Версия
+version = 1.0
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            python3-pip \
-            git \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            libncurses5-dev \
-            libreadline-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libbz2-dev \
-            liblzma-dev \
-            tk-dev \
-            libffi-dev \
-            curl \
-            wget \
-            unzip \
-            openjdk-17-jdk \
-            ant \
-            cmake
+# Требования
+requirements = python3,kivy,plyer,Pillow
 
-      - name: Install Buildozer and Cython
-        run: |
-          pip install buildozer "cython<3"
+# Ориентация
+orientation = all
 
-      - name: Pre-accept Android SDK licenses
-        run: |
-          mkdir -p /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
-          unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
-          mv /tmp/cmdline-tools/cmdline-tools/* /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest/
-          yes | /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/runner/.buildozer/android/platform/android-sdk --licenses
+# Полноэкранный режим
+fullscreen = 1
 
-      - name: Build APK
-        run: |
-          buildozer -v android debug
+# Разрешения
+android.permissions = STORAGE, CAMERA, FLASHLIGHT
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kotlovan-apk
-          path: bin/*.apk
-          retention-days: 7
+# API
+android.api = 31
+android.minapi = 21
+
+# Архитектура
+android.archs = arm64-v8a, armeabi-v7a
+
+# Иконка (можно заменить на свою)
+# android.icon = icon.png
+
+# Buildozer
+buildozer.log_level = 2
+buildozer.warn_on_root = 1
+
+[buildozer]
+log_level = 2
+warn_on_root = 1
