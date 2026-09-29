@@ -54,26 +54,32 @@ jobs:
         run: |
           pip install buildozer "cython<3"
 
-      - name: Prepare Android SDK and accept licenses
+      - name: Prepare Android SDK (full control)
         run: |
           SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk
           CMDLINE_DIR=$SDK_ROOT/cmdline-tools/latest
 
           mkdir -p $CMDLINE_DIR
 
-          # Скачиваем commandlinetools (версия совместима с Android SDK)
+          # Скачиваем commandlinetools
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
           unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
-
           mv /tmp/cmdline-tools/cmdline-tools/* $CMDLINE_DIR/
 
-          # Принимаем лицензии, используя правильную Java
+          # Принимаем лицензии
           JAVA_HOME=$JAVA_HOME PATH=$JAVA_HOME/bin:$PATH \
             yes | $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT --licenses
 
-          # Устанавливаем обязательные компоненты SDK
+          # Устанавливаем обязательные компоненты
           JAVA_HOME=$JAVA_HOME PATH=$JAVA_HOME/bin:$PATH \
-            $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT "platform-tools" "platforms;android-31" "build-tools;30.0.3"
+            $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT \
+              "platform-tools" \
+              "platforms;android-31" \
+              "build-tools;30.0.3"
+
+          # Создаём символическую ссылку, чтобы Buildozer видел sdkmanager по ожидаемому пути
+          mkdir -p $SDK_ROOT/tools/bin
+          ln -s $CMDLINE_DIR/bin/sdkmanager $SDK_ROOT/tools/bin/sdkmanager
 
       - name: Build APK
         env:
