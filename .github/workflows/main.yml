@@ -13,6 +13,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: gradle
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -41,7 +48,6 @@ jobs:
             curl \
             wget \
             unzip \
-            openjdk-17-jdk \
             ant \
             cmake
 
@@ -51,15 +57,28 @@ jobs:
 
       - name: Pre-accept Android SDK licenses
         run: |
-          mkdir -p /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest
+          # Путь, куда Buildozer будет ставить SDK
+          SDK_ROOT=/home/runner/.buildozer/android/platform/android-sdk
+          CMDLINE_DIR=$SDK_ROOT/cmdline-tools/latest
+
+          mkdir -p $CMDLINE_DIR
+
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
           unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
-          mv /tmp/cmdline-tools/cmdline-tools/* /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest/
-          yes | /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/runner/.buildozer/android/platform/android-sdk --licenses
+
+          mv /tmp/cmdline-tools/cmdline-tools/* $CMDLINE_DIR/
+
+          # Принудительно используем java из actions/setup-java (это Java 17)
+          JAVA_HOME=$JAVA_HOME \
+          PATH=$JAVA_HOME/bin:$PATH \
+          yes | $CMDLINE_DIR/bin/sdkmanager --sdk_root=$SDK_ROOT --licenses
 
       - name: Build APK
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          PATH: ${{ env.JAVA_HOME }}/bin:${{ env.PATH }}
         run: |
-          buildozer -v android debug
+          JAVA_HOME=$JAVA_HOME PATH=$JAVA_HOME/bin:$PATH buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
