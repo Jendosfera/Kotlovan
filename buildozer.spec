@@ -20,4 +20,4 @@ android.arch = arm64-v8a, armeabi-v7a
 p4a.branch = 2024.1.13
 
 # Ориентация
-orientation = sensorLandscape
+orientation = sensor
