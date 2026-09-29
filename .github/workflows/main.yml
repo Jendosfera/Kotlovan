@@ -1,46 +1,67 @@
 name: Build Android APK
 
-
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: "3.11"
 
-      - name: Install npm dependencies and sync Capacitor
+      - name: Install dependencies
         run: |
-          npm ci
-          npx cap sync android
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            python3-pip \
+            git \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            zlib1g-dev \
+            libncurses5-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libbz2-dev \
+            liblzma-dev \
+            tk-dev \
+            libffi-dev \
+            curl \
+            wget \
+            unzip \
+            openjdk-17-jdk \
+            ant \
+            cmake
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
+      - name: Install Buildozer and Cython
+        run: |
+          pip install buildozer "cython<3"
 
-      - name: Grant execute permission for Gradle wrapper
-        run: chmod +x ./android/gradlew
+      - name: Prepare Buildozer
+        run: |
+          # Buildozer сам скачает Android SDK/NDK при первой сборке
+          buildozer init || true
+          # Если buildozer.spec уже есть — не перезаписываем
 
       - name: Build APK
-        working-directory: ./android
-        run: ./gradlew assembleDebug
+        run: |
+          buildozer -v android debug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-apk
-          path: ./android/app/build/outputs/apk/debug/app-debug.apk
+          name: kotlovan-apk
+          path: bin/*.apk
+          retention-days: 7
