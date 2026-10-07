@@ -864,8 +864,8 @@ class FilePickerScreen(Screen):
         data = self.save_data
         if not data:
             return
-<<<<<<< HEAD
-=======
+###<<<<<<< HEAD
+### =======
         
         self.image_view.load_image(cell.image_path)
         
@@ -1636,7 +1636,7 @@ class KotlovanApp(App):
         if not os.path.exists(array_dir):
             os.makedirs(array_dir)
         
->>>>>>> 32dfbfd (new old progect)
+### >>>>>>> 32dfbfd (new old progect)
         # Копируем изображения
         for key, cell in data.get("cells", {}).items():
             img = cell.get("image", "")
