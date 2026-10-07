@@ -1,430 +1,310 @@
-"""
-Котлован — приложение для просмотра инженерных чертежей
-Сравнение одинаковых помещений на схемах разных коммуникаций
-"""
-
 import os
 import json
-import math
+import shutil
 from kivy.app import App
-from kivy.uix.screenmanager import ScreenManager, Screen, SlideTransition
+from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.image import Image
-from kivy.uix.widget import Widget
 from kivy.uix.popup import Popup
-from kivy.uix.filechooser import FileChooserListView
-from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.slider import Slider
-from kivy.uix.switch import Switch
+from kivy.graphics import Color, Ellipse, Line, Rectangle, PushMatrix, PopMatrix, Scale, Translate
 from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle, Ellipse, Line, PushMatrix, PopMatrix, Translate, Scale
-from kivy.graphics.texture import Texture
 from kivy.clock import Clock
-from kivy.properties import NumericProperty, StringProperty, BooleanProperty, ListProperty, ObjectProperty, AliasProperty
-from kivy.vector import Vector
-from kivy.animation import Animation
-from kivy.utils import get_color_from_hex
-from PIL import Image as PILImage
-import io
+from kivy.properties import (ObjectProperty, StringProperty, NumericProperty,
+                             BooleanProperty, ListProperty, DictProperty)
 
-# Попытка импорта фонарика
-try:
-    from plyer import flashlight
-    HAS_FLASHLIGHT = True
-except:
-    HAS_FLASHLIGHT = False
-
-# ========== Глобальные настройки ==========
-ICON_SCALE = 1.0
-ICON_ALPHA = 1.0
-
-def get_icon_size():
-    return 40 * ICON_SCALE
-
-def get_icon_alpha():
-    return ICON_ALPHA
-
-def get_small_icon_size():
-    return 30 * ICON_SCALE
-
-def get_back_btn_size():
-    return 50 * ICON_SCALE
-
-# ========== Цвета ==========
-COLOR_BG = get_color_from_hex('#1a1a2e')
-COLOR_BTN = get_color_from_hex('#16213e')
-COLOR_BTN_ACTIVE = get_color_from_hex('#0f3460')
-COLOR_ACCENT = get_color_from_hex('#e94560')
-COLOR_TEXT = get_color_from_hex('#eeeeee')
-COLOR_PLUS = get_color_from_hex('#53d769')
-COLOR_CARD = get_color_from_hex('#2a2a4a')
-COLOR_PLUS_BTN = get_color_from_hex('#3a7bd5')
+# ---------------------------------------------------------------------------
+#  Константы и утилиты
+# ---------------------------------------------------------------------------
+SAVE_DIR = os.path.join(os.path.expanduser("~"), "KotlovanArrays")
 
 
-# ========== Иконки (рисуются программно) ==========
-class IconButton(Button):
-    """Кнопка с програмно рисуемой иконкой"""
-    icon_type = StringProperty('back')
-    icon_scale = NumericProperty(1.0)
-    icon_alpha_val = NumericProperty(1.0)
-    
-    def __init__(self, icon_type='back', **kwargs):
-        super().__init__(**kwargs)
-        self.icon_type = icon_type
-        self.icon_scale = ICON_SCALE
-        self.icon_alpha_val = ICON_ALPHA
+def ensure_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def load_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_json(data, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+#  Виджет мерцающего кружка
+# ---------------------------------------------------------------------------
+class BlinkCircle(FloatLayout):
+    """Маленький кружок, меняющий прозрачность (для режимов установки точки / комментария)."""
+    alpha = NumericProperty(0.5)
+
+    def __init__(self, radius=20, **kw):
+        super().__init__(**kw)
         self.size_hint = (None, None)
-        self.background_color = (0, 0, 0, 0)
-        self.update_size()
-        self.bind(pos=self.update_canvas, size=self.update_canvas)
-        self.update_canvas()
-    
-    def update_size(self):
-        s = get_back_btn_size()
-        self.size = (s, s)
-    
-    def update_canvas(self, *args):
-        self.canvas.clear()
-        a = get_icon_alpha()
-        with self.canvas:
-            if self.icon_type == 'back':
-                # Стрелка назад
-                Color(1, 1, 1, a)
-                Line(points=[
-                    self.right - 10*self.icon_scale, self.center_y,
-                    self.x + 10*self.icon_scale, self.center_y
-                ], width=2)
-                Line(points=[
-                    self.x + 10*self.icon_scale, self.center_y,
-                    self.x + 20*self.icon_scale, self.center_y + 10*self.icon_scale
-                ], width=2)
-                Line(points=[
-                    self.x + 10*self.icon_scale, self.center_y,
-                    self.x + 20*self.icon_scale, self.center_y - 10*self.icon_scale
-                ], width=2)
-            elif self.icon_type == 'plus':
-                Color(0.33, 0.84, 0.41, a)
-                Line(points=[
-                    self.center_x, self.y + 8*self.icon_scale,
-                    self.center_x, self.top - 8*self.icon_scale
-                ], width=3)
-                Line(points=[
-                    self.x + 8*self.icon_scale, self.center_y,
-                    self.right - 8*self.icon_scale, self.center_y
-                ], width=3)
-                # Объёмная рамка
-                Color(0.33, 0.84, 0.41, a * 0.5)
-                Line(rectangle=(self.x+2, self.y+2, self.width-4, self.height-4), width=1.5)
-            elif self.icon_type == 'menu':
-                Color(1, 1, 1, a)
-                Line(points=[self.x + 8*self.icon_scale, self.top - 10*self.icon_scale, 
-                              self.right - 8*self.icon_scale, self.top - 10*self.icon_scale], width=2)
-                Line(points=[self.x + 8*self.icon_scale, self.center_y,
-                              self.right - 8*self.icon_scale, self.center_y], width=2)
-                Line(points=[self.x + 8*self.icon_scale, self.y + 10*self.icon_scale,
-                              self.right - 8*self.icon_scale, self.y + 10*self.icon_scale], width=2)
-            elif self.icon_type == 'eye_closed':
-                # Полуприкрытый глаз
-                Color(1, 1, 1, a)
-                # Веко
-                Line(points=self._eye_shape(self.center_x, self.center_y, 16*self.icon_scale, 8*self.icon_scale), width=1.5)
-                # Нижнее веко (прикрыто)
-                Color(1, 1, 1, a)
-                Line(points=[
-                    self.center_x - 12*self.icon_scale, self.center_y - 2*self.icon_scale,
-                    self.center_x + 12*self.icon_scale, self.center_y - 2*self.icon_scale
-                ], width=2)
-            elif self.icon_type == 'eye_open_narrow':
-                # Открытый глаз, суженный зрачок
-                Color(1, 1, 1, a)
-                Line(points=self._eye_shape(self.center_x, self.center_y, 16*self.icon_scale, 8*self.icon_scale), width=1.5)
-                Color(1, 1, 1, a)
-                d = 3*self.icon_scale
-                Ellipse(pos=(self.center_x - d, self.center_y - d), size=(d*2, d*2))
-            elif self.icon_type == 'eye_open_wide':
-                # Открытый глаз, широкий зрачок
-                Color(1, 1, 1, a)
-                Line(points=self._eye_shape(self.center_x, self.center_y, 16*self.icon_scale, 8*self.icon_scale), width=1.5)
-                Color(1, 1, 1, a)
-                d = 6*self.icon_scale
-                Ellipse(pos=(self.center_x - d, self.center_y - d), size=(d*2, d*2))
-            elif self.icon_type == 'flashlight':
-                Color(1, 1, 0, a)
-                # Корпус фонарика
-                Line(rectangle=(self.center_x - 5*self.icon_scale, self.center_y - 10*self.icon_scale, 
-                                10*self.icon_scale, 14*self.icon_scale), width=1.5)
-                # Свет
-                Color(1, 1, 0.3, a * 0.7)
-                Line(points=[
-                    self.center_x - 3*self.icon_scale, self.center_y + 4*self.icon_scale,
-                    self.center_x - 10*self.icon_scale, self.center_y + 12*self.icon_scale
-                ], width=1.5)
-                Line(points=[
-                    self.center_x + 3*self.icon_scale, self.center_y + 4*self.icon_scale,
-                    self.center_x + 10*self.icon_scale, self.center_y + 12*self.icon_scale
-                ], width=1.5)
-                Line(points=[
-                    self.center_x, self.center_y + 4*self.icon_scale,
-                    self.center_x, self.center_y + 14*self.icon_scale
-                ], width=1.5)
-            elif self.icon_type == 'check':
-                Color(0.33, 0.84, 0.41, a)
-                Line(points=[
-                    self.x + 8*self.icon_scale, self.center_y,
-                    self.center_x - 4*self.icon_scale, self.y + 10*self.icon_scale,
-                    self.right - 8*self.icon_scale, self.top - 10*self.icon_scale
-                ], width=2.5)
-            elif self.icon_type == 'delete':
-                Color(0.91, 0.27, 0.37, a)
-                Line(points=[
-                    self.x + 10*self.icon_scale, self.y + 10*self.icon_scale,
-                    self.right - 10*self.icon_scale, self.top - 10*self.icon_scale
-                ], width=2)
-                Line(points=[
-                    self.right - 10*self.icon_scale, self.y + 10*self.icon_scale,
-                    self.x + 10*self.icon_scale, self.top - 10*self.icon_scale
-                ], width=2)
-            elif self.icon_type == 'save':
-                Color(1, 1, 1, a)
-                # Дискета
-                Line(rectangle=(self.x + 8*self.icon_scale, self.y + 8*self.icon_scale,
-                                self.width - 16*self.icon_scale, self.height - 16*self.icon_scale), width=1.5)
-                Line(rectangle=(self.x + 14*self.icon_scale, self.center_y,
-                                self.width - 28*self.icon_scale, self.height - 24*self.icon_scale), width=1.5)
-            elif self.icon_type == 'folder':
-                Color(1, 0.8, 0.2, a)
-                Line(points=[
-                    self.x + 6*self.icon_scale, self.top - 8*self.icon_scale,
-                    self.x + 14*self.icon_scale, self.top - 8*self.icon_scale,
-                    self.x + 18*self.icon_scale, self.top - 14*self.icon_scale,
-                    self.right - 6*self.icon_scale, self.top - 14*self.icon_scale
-                ], width=1.5)
-                Line(rectangle=(self.x + 6*self.icon_scale, self.y + 6*self.icon_scale,
-                                self.width - 12*self.icon_scale, self.height - 20*self.icon_scale), width=1.5)
-    
-    def _eye_shape(self, cx, cy, w, h):
-        points = []
-        steps = 12
-        for i in range(steps + 1):
-            t = i / steps * math.pi
-            x = cx - w + (2*w) * (i / steps)
-            y = cy - h * math.sin(t)
-            points.extend([x, y])
-        return points
-    
-    def refresh(self):
-        self.icon_scale = ICON_SCALE
-        self.icon_alpha_val = ICON_ALPHA
-        self.update_size()
-        self.update_canvas()
+        self.size = (radius * 2, radius * 2)
+        self.radius = radius
+        self._dir = 1
+        self._ev = Clock.schedule_interval(self._tick, 0.03)
+
+    def _tick(self, dt):
+        self.alpha += self._dir * 0.04
+        if self.alpha >= 1:
+            self.alpha = 1
+            self._dir = -1
+        elif self.alpha <= 0.15:
+            self.alpha = 0.15
+            self._dir = 1
+        return True
+
+    def stop(self):
+        if self._ev:
+            self._ev.cancel()
+            self._ev = None
 
 
-class BackButton(IconButton):
-    def __init__(self, callback=None, **kwargs):
-        super().__init__(icon_type='back', **kwargs)
-        self.callback = callback
-        self.bind(on_press=self._on_press)
-    
-    def _on_press(self, *args):
-        if self.callback:
-            self.callback()
+# ---------------------------------------------------------------------------
+#  Виджет комментария-кружка (в режиме просмотра)
+# ---------------------------------------------------------------------------
+class CommentCircle(FloatLayout):
+    """Неподвижный кружок комментария с подписью."""
+    def __init__(self, cx, cy, radius, title="", text="", comment_id=None, **kw):
+        super().__init__(**kw)
+        self.size_hint = (None, None)
+        self.size = (radius * 2, radius * 2)
+        self.pos = (cx - radius, cy - radius)
+        self.radius = radius
+        self.title = title
+        self.text = text
+        self.comment_id = comment_id
+
+    def set_visual(self, alpha=0.0, blink=False, fixed_radius=None):
+        """Переключение режима отображения (глаз)."""
+        if fixed_radius:
+            self.radius = fixed_radius
+            self.size = (fixed_radius * 2, fixed_radius * 2)
+        # alpha задаётся через canvas — обновление происходит во ViewerScreen
 
 
-# ========== Модель данных ==========
-class CellData:
-    """Данные одной ячейки массива"""
-    def __init__(self):
-        self.title = ""
-        self.image_path = ""
-        self.image_filename = ""
-        self.own_position = False  # "Свое положение"
-        self.common_point = None  # [x, y] в координатах изображения
-        self.comments = []  # [{x, y, size, title, text}]
-        # Собственный viewport для own_position=True
-        self.own_zoom = 1.0
-        self.own_offset_x = 0.0
-        self.own_offset_y = 0.0
-    
-    def to_dict(self):
-        return {
-            "title": self.title,
-            "image_path": self.image_path,
-            "image_filename": self.image_filename,
-            "own_position": self.own_position,
-            "common_point": self.common_point,
-            "comments": self.comments,
-            "own_zoom": self.own_zoom,
-            "own_offset_x": self.own_offset_x,
-            "own_offset_y": self.own_offset_y,
-        }
-    
-    @staticmethod
-    def from_dict(d):
-        c = CellData()
-        c.title = d.get("title", "")
-        c.image_path = d.get("image_path", "")
-        c.image_filename = d.get("image_filename", "")
-        c.own_position = d.get("own_position", False)
-        c.common_point = d.get("common_point", None)
-        c.comments = d.get("comments", [])
-        c.own_zoom = d.get("own_zoom", 1.0)
-        c.own_offset_x = d.get("own_offset_x", 0.0)
-        c.own_offset_y = d.get("own_offset_y", 0.0)
-        return c
+# ---------------------------------------------------------------------------
+#  Экран: Главное меню
+# ---------------------------------------------------------------------------
+class MainMenuScreen(Screen):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        layout = BoxLayout(orientation="vertical", padding=40, spacing=20)
+
+        title = Label(text="Котлован", font_size=42, size_hint_y=0.3)
+        layout.add_widget(title)
+
+        btn_load = Button(text="Загрузить массив", font_size=24)
+        btn_load.bind(on_release=self.do_load)
+        layout.add_widget(btn_load)
+
+        btn_create = Button(text="Создать массив", font_size=24)
+        btn_create.bind(on_release=self.do_create)
+        layout.add_widget(btn_create)
+
+        self.add_widget(layout)
+
+    def do_load(self, *_):
+        sm = self.manager
+        if sm:
+            sm.current = "file_picker"
+            sm.get_screen("file_picker").set_mode("load")
+
+    def do_create(self, *_):
+        sm = self.manager
+        if sm:
+            sm.current = "create_array"
 
 
-class ArrayData:
-    """Данные всего массива"""
-    def __init__(self, rows=0, cols=0):
+# ---------------------------------------------------------------------------
+#  Экран: Создание массива (выбор строк / столбцов)
+# ---------------------------------------------------------------------------
+class CreateArrayScreen(Screen):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.layout = FloatLayout()
+
+        box = BoxLayout(orientation="vertical", padding=40, spacing=20,
+                        size_hint=(0.8, 0.7), pos_hint={"center_x": 0.5, "center_y": 0.5})
+
+        self.spinner_rows = Spinner(
+            text="3", values=[str(i) for i in range(1, 21)], font_size=24)
+        self.spinner_cols = Spinner(
+            text="3", values=[str(i) for i in range(1, 21)], font_size=24)
+
+        box.add_widget(Label(text="Количество строк:", font_size=20))
+        box.add_widget(self.spinner_rows)
+        box.add_widget(Label(text="Количество столбцов:", font_size=20))
+        box.add_widget(self.spinner_cols)
+
+        btn_confirm = Button(text="Подтвердить", font_size=24)
+        btn_confirm.bind(on_release=self.on_confirm)
+        box.add_widget(btn_confirm)
+
+        self.layout.add_widget(box)
+        self.add_widget(self.layout)
+
+    def on_pre_enter(self, *_):
+        self.clear_back()
+        self.add_back()
+
+    def add_back(self):
+        self.back_btn = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                               pos_hint={"x": 0.02, "top": 0.98})
+        self.back_btn.bind(on_release=lambda *_: self.go_back())
+        self.layout.add_widget(self.back_btn)
+
+    def clear_back(self):
+        if hasattr(self, "back_btn") and self.back_btn:
+            self.layout.remove_widget(self.back_btn)
+            self.back_btn = None
+
+    def go_back(self):
+        self.manager.current = "main"
+
+    def on_confirm(self, *_):
+        rows = int(self.spinner_rows.text)
+        cols = int(self.spinner_cols.text)
+        sm = self.manager
+        sm.get_screen("array_view").init_array(rows, cols)
+        sm.current = "array_view"
+
+
+# ---------------------------------------------------------------------------
+#  Экран: Отображение массива (сетка с + кнопками)
+# ---------------------------------------------------------------------------
+class ArrayViewScreen(Screen):
+    current_array = ObjectProperty(None)
+
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.layout = FloatLayout()
+        self.add_widget(self.layout)
+        self.rows = 0
+        self.cols = 0
+        self.cells = {}  # (r,c) -> {"name":..., "image":..., "common_point":None,
+                          #            "own_position":False, "comments":[]}
+        self._grid = None
+
+    def init_array(self, rows, cols):
         self.rows = rows
         self.cols = cols
-        self.cells = {}  # key = "row,col" -> CellData
-        # Общие параметры viewport (для ячеек без own_position)
-        self.shared_zoom = 1.0
-        self.shared_offset_x = 0.0
-        self.shared_offset_y = 0.0
-        self.current_row = 0
-        self.current_col = 0
-        self.config_path = ""
-        self.array_name = "Без названия"
-    
-    def get_cell(self, row, col):
-        key = f"{row},{col}"
-        if key not in self.cells:
-            self.cells[key] = CellData()
-        return self.cells[key]
-    
-    def set_cell(self, row, col, cell):
-        self.cells[f"{row},{col}"] = cell
-    
-    def cell_exists(self, row, col):
-        return f"{row},{col}" in self.cells and self.cells[f"{row},{col}"].image_path
-    
-    def to_dict(self):
-        cells_dict = {}
-        for key, cell in self.cells.items():
-            if cell.image_path or cell.title:
-                cells_dict[key] = cell.to_dict()
-        return {
-            "rows": self.rows,
-            "cols": self.cols,
-            "array_name": self.array_name,
-            "shared_zoom": self.shared_zoom,
-            "shared_offset_x": self.shared_offset_x,
-            "shared_offset_y": self.shared_offset_y,
-            "current_row": self.current_row,
-            "current_col": self.current_col,
-            "cells": cells_dict,
-        }
-    
-    @staticmethod
-    def from_dict(d):
-        arr = ArrayData(d.get("rows", 0), d.get("cols", 0))
-        arr.array_name = d.get("array_name", "Без названия")
-        arr.shared_zoom = d.get("shared_zoom", 1.0)
-        arr.shared_offset_x = d.get("shared_offset_x", 0.0)
-        arr.shared_offset_y = d.get("shared_offset_y", 0.0)
-        arr.current_row = d.get("current_row", 0)
-        arr.current_col = d.get("current_col", 0)
-        for key, cd in d.get("cells", {}).items():
-            arr.cells[key] = CellData.from_dict(cd)
+        self.cells = {}
+        for r in range(rows):
+            for c in range(cols):
+                self.cells[(r, c)] = {
+                    "name": "",
+                    "image": "",
+                    "common_point": None,
+                    "own_position": False,
+                    "comments": [],
+                }
+        self.rebuild_grid()
+
+    def on_pre_enter(self, *_):
+        self._rebuild()
+
+    def _rebuild(self):
+        self.layout.clear_widgets()
+        self.add_back()
+
+        if not self.cells:
+            self.layout.add_widget(Label(text="Массив не создан", font_size=24,
+                                         pos_hint={"center_x": 0.5, "center_y": 0.5}))
+            return
+
+        # Кнопка сохранения внизу
+        btn_save = Button(text="Сохранить массив", font_size=20,
+                          size_hint=(0.4, 0.08),
+                          pos_hint={"center_x": 0.5, "y": 0.02})
+        btn_save.bind(on_release=self.do_save)
+        self.layout.add_widget(btn_save)
+
+        # Сетка
+        scroll = GridLayout(cols=self.cols, rows=self.rows,
+                            size_hint=(0.9, 0.8),
+                            pos_hint={"center_x": 0.5, "center_y": 0.5},
+                            spacing=6)
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cell = self.cells.get((r, c))
+                if cell and cell["name"]:
+                    btn = Button(text=cell["name"][:12], font_size=12,
+                                 on_release=lambda *_args, rr=r, cc=c: self.edit_cell(rr, cc))
+                    scroll.add_widget(btn)
+                else:
+                    btn = Button(text="+", font_size=24,
+                                 on_release=lambda *_args, rr=r, cc=c: self.edit_cell(rr, cc))
+                    scroll.add_widget(btn)
+        self.layout.add_widget(scroll)
+
+<<<<<<< HEAD
+    def add_back(self):
+        self.back_btn = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                               pos_hint={"x": 0.02, "top": 0.98})
+        self.back_btn.bind(on_release=lambda *_: self.go_back())
+        self.layout.add_widget(self.back_btn)
+
+    def go_back(self):
+        self.manager.current = "main"
+
+    def edit_cell(self, r, c):
+        sm = self.manager
+        scr = sm.get_screen("card_edit")
+        scr.set_cell(self, r, c, self.cells[(r, c)])
+        sm.current = "card_edit"
+
+    def do_save(self, *_):
+        sm = self.manager
+        picker = sm.get_screen("file_picker")
+        picker.set_mode("save", data=self.get_save_data())
+        sm.current = "file_picker"
+
+    def get_save_data(self):
+        arr = {"rows": self.rows, "cols": self.cols, "cells": {}}
+        for (r, c), cell in self.cells.items():
+            arr["cells"][f"{r},{c}"] = {
+                "row": r, "col": c,
+                "name": cell["name"],
+                "image": cell["image"],
+                "common_point": cell["common_point"],
+                "own_position": cell["own_position"],
+                "comments": cell["comments"],
+            }
         return arr
-    
-    def to_json(self):
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
-    
-    @staticmethod
-    def from_json(json_str):
-        return ArrayData.from_dict(json.loads(json_str))
 
+    def load_from_data(self, data):
+        self.rows = data.get("rows", 1)
+        self.cols = data.get("cols", 1)
+        self.cells = {}
+        for key, cdata in data.get("cells", {}).items():
+            r, c = cdata["row"], cdata["col"]
+            self.cells[(r, c)] = {
+                "name": cdata.get("name", ""),
+                "image": cdata.get("image", ""),
+                "common_point": cdata.get("common_point"),
+                "own_position": cdata.get("own_position", False),
+                "comments": cdata.get("comments", []),
+            }
+        self.rebuild_grid()
 
-# ========== Менеджер экранов ==========
-class KotlovanScreenManager(ScreenManager):
-    pass
-
-
-# ========== Главный экран ==========
-class MainMenuScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.name = 'main_menu'
-        self.build_ui()
-    
-    def build_ui(self):
-        layout = FloatLayout()
-        
-        with layout.canvas.before:
-            Color(*COLOR_BG)
-            Rectangle(pos=self.pos, size=self.size)
-        
-        # Заголовок
-        title = Label(
-            text='Котлован',
-            font_size=42,
-            color=COLOR_ACCENT,
-            size_hint=(1, None),
-            height=60,
-            pos_hint={'center_x': 0.5, 'top': 0.85}
-        )
-        layout.add_widget(title)
-        
-        subtitle = Label(
-            text='Просмотр инженерных чертежей',
-            font_size=16,
-            color=COLOR_TEXT,
-            size_hint=(1, None),
-            height=30,
-            pos_hint={'center_x': 0.5, 'top': 0.78}
-        )
-        layout.add_widget(subtitle)
-        
-        # Кнопки
-        btn_layout = BoxLayout(
-            orientation='vertical',
-            size_hint=(0.7, None),
-            height=130,
-            pos_hint={'center_x': 0.5, 'center_y': 0.5},
-            spacing=15
-        )
-        
-        btn_load = Button(
-            text='Загрузить массив',
-            font_size=20,
-            background_color=COLOR_BTN_ACTIVE,
-            color=COLOR_TEXT
-        )
-        btn_load.bind(on_press=self.load_array)
-        btn_layout.add_widget(btn_load)
-        
-        btn_create = Button(
-            text='Создать массив',
-            font_size=20,
-            background_color=COLOR_BTN_ACTIVE,
-            color=COLOR_TEXT
-        )
-        btn_create.bind(on_press=self.create_array)
-        btn_layout.add_widget(btn_create)
-        
-        layout.add_widget(btn_layout)
-        self.add_widget(layout)
-    
-    def load_array(self, *args):
-        app = App.get_running_app()
-        app.show_file_chooser('load_config')
-    
-    def create_array(self, *args):
-        app = App.get_running_app()
-        app.array_data = None
-        app.sm.current = 'array_size'
-
-
+    def rebuild_grid(self):
+        self._rebuild()
+=======
 # ========== Экран выбора размера массива ==========
 class ArraySizeScreen(Screen):
     def __init__(self, **kwargs):
@@ -799,499 +679,193 @@ class GridViewScreen(Screen):
     def save_array(self, *args):
         app = App.get_running_app()
         app.show_file_chooser('save_array')
+>>>>>>> 32dfbfd (new old progect)
 
 
-# ========== Экран редактирования карточки ==========
+# ---------------------------------------------------------------------------
+#  Экран: Создание / редактирование карточки
+# ---------------------------------------------------------------------------
 class CardEditScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.name = 'card_edit'
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.layout = FloatLayout()
+        self.array_screen = None
         self.row = 0
         self.col = 0
-        self.build_ui()
-    
-    def build_ui(self):
-        self.layout = FloatLayout()
-        
-        with self.layout.canvas.before:
-            Color(*COLOR_BG)
-            Rectangle(pos=self.pos, size=self.size)
-        
-        # Кнопка возврата
-        self.back_btn = BackButton(callback=self.go_back)
+        self.cell = None
+        self.tmp_image = ""
+        self._img_widget = None
+
+        box = BoxLayout(orientation="vertical", padding=40, spacing=15,
+                        size_hint=(0.85, 0.8),
+                        pos_hint={"center_x": 0.5, "center_y": 0.5})
+
+        self.name_input = TextInput(hint_text="Название карточки",
+                                   font_size=20, size_hint_y=0.15,
+                                   multiline=False)
+        box.add_widget(self.name_input)
+
+        self.img_area = FloatLayout(size_hint_y=0.55)
+        self.img_placeholder = Label(text="(изображение не загружено)", font_size=18)
+        self.img_area.add_widget(self.img_placeholder)
+        box.add_widget(self.img_area)
+
+        row_btns = BoxLayout(orientation="horizontal", spacing=15, size_hint_y=0.15)
+        btn_load = Button(text="Загрузить", font_size=22)
+        btn_load.bind(on_release=self.do_load_image)
+        row_btns.add_widget(btn_load)
+
+        btn_save = Button(text="Подтвердить", font_size=22)
+        btn_save.bind(on_release=self.do_confirm)
+        row_btns.add_widget(btn_save)
+        box.add_widget(row_btns)
+
+        self.layout.add_widget(box)
+        self.back_btn = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                               pos_hint={"x": 0.02, "top": 0.98})
+        self.back_btn.bind(on_release=lambda *_: self.go_back())
         self.layout.add_widget(self.back_btn)
-        
-        # Заголовок
-        self.title_label = Label(
-            text='Карточка ячейки',
-            font_size=22,
-            color=COLOR_TEXT,
-            size_hint=(1, None),
-            height=40,
-            pos_hint={'center_x': 0.5, 'top': 0.93}
-        )
-        self.layout.add_widget(self.title_label)
-        
-        # Поле ввода названия
-        self.name_input = TextInput(
-            hint_text='Введите название',
-            font_size=20,
-            size_hint=(0.8, None),
-            height=50,
-            pos_hint={'center_x': 0.5, 'top': 0.87},
-            multiline=False,
-            background_color=COLOR_BTN
-        )
-        self.layout.add_widget(self.name_input)
-        
-        # Область изображения
-        self.img_widget = Widget(size_hint=(0.85, 0.55), pos_hint={'center_x': 0.5, 'center_y': 0.5})
-        self.img_widget.bind(pos=self.update_image, size=self.update_image)
-        self.layout.add_widget(self.img_widget)
-        
-        # Кнопки
-        btn_layout = BoxLayout(
-            orientation='horizontal',
-            size_hint=(0.8, None),
-            height=55,
-            pos_hint={'center_x': 0.5, 'bottom': 0.08},
-            spacing=20
-        )
-        
-        btn_load = Button(text='Загрузить', font_size=18, background_color=COLOR_BTN_ACTIVE, color=COLOR_TEXT)
-        btn_load.bind(on_press=self.load_image)
-        btn_layout.add_widget(btn_load)
-        
-        btn_confirm = Button(text='Подтвердить', font_size=18, background_color=COLOR_ACCENT, color=COLOR_TEXT)
-        btn_confirm.bind(on_press=self.confirm)
-        btn_layout.add_widget(btn_confirm)
-        
-        self.layout.add_widget(btn_layout)
+
         self.add_widget(self.layout)
-    
-    def set_cell(self, row, col):
-        self.row = row
-        self.col = col
-        app = App.get_running_app()
-        cell = app.array_data.get_cell(row, col)
-        self.name_input.text = cell.title
-        self.update_image()
-    
-    def update_image(self, *args):
-        self.img_widget.canvas.clear()
-        app = App.get_running_app()
-        cell = app.array_data.get_cell(self.row, self.col)
-        a = get_icon_alpha()
-        
-        with self.img_widget.canvas:
-            Color(0.15, 0.15, 0.25, 1)
-            Rectangle(pos=self.img_widget.pos, size=self.img_widget.size)
-            Color(0.3, 0.3, 0.5, 0.8)
-            Line(rectangle=(self.img_widget.x, self.img_widget.y, self.img_widget.width, self.img_widget.height), width=1.5)
-            
-            if cell.image_path and os.path.exists(cell.image_path):
-                try:
-                    from kivy.core.image import Image as CoreImage
-                    img = CoreImage(cell.image_path).texture
-                    if img:
-                        # Масштабируем с сохранением пропорций
-                        iw, ih = img.width, img.height
-                        ww, wh = self.img_widget.width - 10, self.img_widget.height - 10
-                        scale = min(ww/iw, wh/ih)
-                        dw, dh = iw*scale, ih*scale
-                        dx = self.img_widget.x + (self.img_widget.width - dw) / 2
-                        dy = self.img_widget.y + (self.img_widget.height - dh) / 2
-                        Color(1, 1, 1, 1)
-                        Rectangle(texture=img, pos=(dx, dy), size=(dw, dh))
-                except Exception as e:
-                    Color(0.5, 0.5, 0.5, 0.5)
-                    Label(text='Ошибка загрузки')
-            else:
-                # Пустое место с подсказкой
-                Color(0.4, 0.4, 0.5, 0.3)
-                cx, cy = self.img_widget.center
-                s = min(self.img_widget.width, self.img_widget.height) * 0.15
-                Ellipse(pos=(cx-s, cy-s), size=(s*2, s*2))
-                Color(0.4, 0.4, 0.5, 0.5)
-                Line(points=[cx, cy-s*0.5, cx, cy+s*0.5], width=3)
-                Line(points=[cx-s*0.5, cy, cx+s*0.5, cy], width=3)
-    
-    def load_image(self, *args):
-        app = App.get_running_app()
-        app.pending_action = ('card_edit_load', (self.row, self.col))
-        app.show_file_chooser('load_image')
-    
-    def confirm(self, *args):
-        app = App.get_running_app()
-        cell = app.array_data.get_cell(self.row, self.col)
-        cell.title = self.name_input.text
-        # Возврат к сетке
-        app.sm.get_screen('grid_view').refresh_grid()
-        app.sm.current = 'grid_view'
-    
-    def go_back(self):
-        app = App.get_running_app()
-        app.sm.get_screen('grid_view').refresh_grid()
-        app.sm.current = 'grid_view'
 
+    def set_cell(self, array_screen, r, c, cell):
+        self.array_screen = array_screen
+        self.row = r
+        self.col = c
+        self.cell = cell
+        self.tmp_image = cell.get("image", "")
+        self.name_input.text = cell.get("name", "")
+        self._refresh_image()
 
-# ========== Виджет просмотра изображения с мультитач ==========
-class ImageViewportWidget(Widget):
-    """Виджет для просмотра изображения с зумом, панорамированием и свайпами"""
-    
-    def __init__(self, view_screen, **kwargs):
-        super().__init__(**kwargs)
-        self.view_screen = view_screen
-        self.texture = None
-        self.img_width = 0
-        self.img_height = 0
-        
-        # Viewport: центр в координатах изображения и масштаб
-        self.view_x = 0.0  # центр viewport по X в координатах изображения
-        self.view_y = 0.0  # центр viewport по Y в координатах изображения
-        self.zoom = 1.0
-        
-        # Трекинг касаний
-        self.touches = {}  # id -> (x, y)
-        self.pinch_initial_dist = 0
-        self.pinch_initial_zoom = 1.0
-        self.pinch_center_img = None  # центр между пальцами в координатах изображения
-        self.pan_initial_mid = None
-        self.pan_initial_view = None
-        self.swipe_start = None
-        self.swipe_moved = False
-        
-        # Для определения свайпа
-        self.swipe_threshold = 50
-        
-        self.bind(pos=self.redraw, size=self.redraw)
-    
-    def load_image(self, path):
-        if path and os.path.exists(path):
-            try:
-                from kivy.core.image import Image as CoreImage
-                self.texture = CoreImage(path).texture
-                self.img_width = self.texture.width
-                self.img_height = self.texture.height
-                return True
-            except:
-                pass
-        self.texture = None
-        self.img_width = 0
-        self.img_height = 0
-        return False
-    
-    def set_viewport(self, cx, cy, zoom):
-        self.view_x = cx
-        self.view_y = cy
-        self.zoom = zoom
-        self.redraw()
-    
-    def screen_to_img(self, sx, sy):
-        """Преобразование экранных координат в координаты изображения"""
-        dw = self.width
-        dh = self.height
-        # Размер видимой области в координатах изображения
-        vis_w = dw / self.zoom
-        vis_h = dh / self.zoom
-        # Левый верхний угол viewport в координатах изображения
-        left = self.view_x - vis_w / 2
-        top = self.view_y + vis_h / 2
-        # Экранные координаты относительно центра
-        rx = sx - self.x - dw / 2
-        ry = sy - self.y - dh / 2
-        ix = self.view_x + rx / self.zoom
-        iy = self.view_y - ry / self.zoom
-        return ix, iy
-    
-    def img_to_screen(self, ix, iy):
-        """Преобразование координат изображения в экранные"""
-        rx = (ix - self.view_x) * self.zoom
-        ry = (iy - self.view_y) * self.zoom
-        sx = self.x + self.width / 2 + rx
-        sy = self.y + self.height / 2 - ry
-        return sx, sy
-    
-    def fit_viewport(self):
-        """Подгонка viewport для отображения всего изображения"""
-        if self.img_width == 0 or self.img_height == 0:
-            return
-        self.view_x = self.img_width / 2
-        self.view_y = self.img_height / 2
-        zx = self.width / self.img_width
-        zy = self.height / self.img_height
-        self.zoom = min(zx, zy) * 0.9
-        self.redraw()
-    
-    def redraw(self, *args):
-        self.canvas.clear()
-        if not self.texture:
-            with self.canvas:
-                Color(0.08, 0.08, 0.12, 1)
-                Rectangle(pos=self.pos, size=self.size)
-            return
-        
-        dw = self.width
-        dh = self.height
-        # Размер видимой области в координатах изображения
-        vis_w = dw / self.zoom
-        vis_h = dh / self.zoom
-        
-        with self.canvas:
-            # Тёмный фон
-            Color(0.08, 0.08, 0.12, 1)
-            Rectangle(pos=self.pos, size=self.size)
-            
-            # Вычисляем позицию и размер изображения на экране
-            sx, sy = self.img_to_screen(0, self.img_height)
-            screen_w = self.img_width * self.zoom
-            screen_h = self.img_height * self.zoom
-            
-            Color(1, 1, 1, 1)
-            Rectangle(texture=self.texture, pos=(sx, sy), size=(screen_w, screen_h))
-        
-        # Рисуем дополнительные слои (комментарии и т.д.)
-        self.view_screen.draw_overlays()
-    
-    def on_touch_down(self, touch):
-        self.touches[touch.id] = (touch.x, touch.y)
-        
-        if len(self.touches) == 1:
-            self.swipe_start = (touch.x, touch.y)
-            self.swipe_moved = False
-        elif len(self.touches) == 2:
-            # Два пальца — зум и пан
-            self.swipe_start = None
-            ids = list(self.touches.keys())
-            t1 = self.touches[ids[0]]
-            t2 = self.touches[ids[1]]
-            self.pinch_initial_dist = Vector(t1).distance(t2)
-            self.pinch_initial_zoom = self.zoom
-            
-            # Центр между пальцами в координатах изображения
-            mid_x = (t1[0] + t2[0]) / 2
-            mid_y = (t1[1] + t2[1]) / 2
-            self.pinch_center_img = self.screen_to_img(mid_x, mid_y)
-            
-            self.pan_initial_mid = (mid_x, mid_y)
-            self.pan_initial_view = (self.view_x, self.view_y)
-        
-        return True
-    
-    def on_touch_move(self, touch):
-        if touch.id in self.touches:
-            self.touches[touch.id] = (touch.x, touch.y)
-        
-        if len(self.touches) >= 2:
-            # Двухпальцевые жесты: зум + пан
-            ids = list(self.touches.keys())
-            t1 = self.touches[ids[0]]
-            t2 = self.touches[ids[1]]
-            dist = Vector(t1).distance(t2)
-            
-            if self.pinch_initial_dist > 0:
-                # Центр экрана
-                scx = self.x + self.width / 2
-                scy = self.y + self.height / 2
-                
-                # Текущий центр между пальцами на экране
-                mid_x = (t1[0] + t2[0]) / 2
-                mid_y = (t1[1] + t2[1]) / 2
-                
-                # Смещение центра пальцев относительно начального положения
-                pan_dx = mid_x - self.pan_initial_mid[0]
-                pan_dy = mid_y - self.pan_initial_mid[1]
-                
-                # Новый масштаб
-                scale = dist / self.pinch_initial_dist
-                new_zoom = max(0.1, min(self.pinch_initial_zoom * scale, 50.0))
-                self.zoom = new_zoom
-                
-                # Viewport = точка под начальным центром пальцев + смещение от пана
-                # Минус смещение от зума (точка под центром пальцев должна остаться на месте)
-                self.view_x = self.pinch_center_img[0] + pan_dx / self.zoom - (mid_x - scx) / self.zoom
-                self.view_y = self.pinch_center_img[1] - pan_dy / self.zoom + (mid_y - scy) / self.zoom
-                # Упрощаем: точка pinch_center_img должна быть под начальной позицией пальцев
-                # + смещение пана
-                self.view_x = self.pinch_center_img[0] + pan_dx / self.zoom
-                self.view_y = self.pinch_center_img[1] - pan_dy / self.zoom
-            
-            self.redraw()
-            self.view_screen.save_viewport_state()
-        elif len(self.touches) == 1 and self.swipe_start:
-            dx = touch.x - self.swipe_start[0]
-            dy = touch.y - self.swipe_start[1]
-            if abs(dx) > 5 or abs(dy) > 5:
-                self.swipe_moved = True
-        
-        return True
-    
-    def on_touch_up(self, touch):
-        if touch.id in self.touches:
-            del self.touches[touch.id]
-        
-        if len(self.touches) == 0 and self.swipe_start and self.swipe_moved:
-            # Определяем свайп
-            dx = touch.x - self.swipe_start[0]
-            dy = touch.y - self.swipe_start[1]
-            
-            if abs(dx) > abs(dy):
-                # Горизонтальный свайп — листание по столбцам
-                if abs(dx) > self.swipe_threshold:
-                    if dx < 0:
-                        self.view_screen.next_col()
-                    else:
-                        self.view_screen.prev_col()
-            else:
-                # Вертикальный свайп — листание по строкам
-                if abs(dy) > self.swipe_threshold:
-                    if dy < 0:
-                        self.view_screen.next_row()
-                    else:
-                        self.view_screen.prev_row()
-            
-            self.swipe_start = None
-            self.swipe_moved = False
-        elif len(self.touches) == 1:
-            # Остался один палец — обновляем состояние для возможного свайпа
-            ids = list(self.touches.keys())
-            self.swipe_start = self.touches[ids[0]]
-            self.swipe_moved = False
-        
-        return True
-
-
-# ========== Экран режима просмотра ==========
-class ViewModeScreen(Screen):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.name = 'view_mode'
-        self.mode = 'view'  # 'view', 'common_point', 'comment_place', 'comment_edit'
-        self.eye_mode = 0  # 0=closed, 1=open narrow, 2=open wide
-        self.flashlight_on = False
-        self.current_row = 0
-        self.current_col = 0
-        self.comment_circle = None  # {x, y, size} — текущий размещаемый кружок
-        self.editing_comment_idx = -1
-        self.build_ui()
-    
-    def build_ui(self):
-        self.layout = FloatLayout()
-        
-        with self.layout.canvas.before:
-            Color(0, 0, 0, 1)
-            Rectangle(pos=self.pos, size=self.size)
-        
-        # Виджет просмотра изображения
-        self.image_view = ImageViewportWidget(self)
-        self.layout.add_widget(self.image_view)
-        
-        # Верхняя панель с иконками
-        # Кнопка возврата (верхний левый угол)
-        self.back_btn = BackButton(callback=self.go_back)
-        self.layout.add_widget(self.back_btn)
-        
-        # Иконка фонарика (по центру сверху)
-        self.flashlight_btn = IconButton(icon_type='flashlight')
-        self.flashlight_btn.bind(on_touch_down=self.on_flashlight_touch)
-        self.layout.add_widget(self.flashlight_btn)
-        
-        # Иконка контекстного меню (правый верхний угол)
-        self.menu_btn = IconButton(icon_type='menu')
-        self.menu_btn.bind(on_press=self.show_context_menu)
-        self.layout.add_widget(self.menu_btn)
-        
-        # Иконка глаза (нижний левый угол)
-        self.eye_btn = IconButton(icon_type='eye_closed')
-        self.eye_btn.bind(on_touch_down=self.on_eye_touch)
-        self.layout.add_widget(self.eye_btn)
-        
-        # Иконка подтверждения (появляется в спецрежимах, нижний левый угол)
-        self.confirm_btn = IconButton(icon_type='check')
-        self.confirm_btn.bind(on_press=self.on_confirm_mode)
-        self.confirm_btn.opacity = 0
-        self.layout.add_widget(self.confirm_btn)
-        
-        # Иконка удаления (в режиме редактирования комментария)
-        self.delete_btn = IconButton(icon_type='delete')
-        self.delete_btn.bind(on_press=self.on_delete_comment)
-        self.delete_btn.opacity = 0
-        self.layout.add_widget(self.delete_btn)
-        
-        # Слои для кружков комментариев и мерцающего кружка
-        self.overlay_widget = Widget()
-        self.overlay_widget.bind(pos=self.draw_overlays, size=self.draw_overlays)
-        self.layout.add_widget(self.overlay_widget)
-        
-        # Поле ввода комментария (скрытое)
-        self.comment_input_layout = BoxLayout(
-            orientation='vertical',
-            size_hint=(0.8, None),
-            height=160,
-            pos_hint={'center_x': 0.5, 'bottom': 0.1},
-            spacing=10
-        )
-        self.comment_input_layout.opacity = 0
-        
-        comment_title_label = Label(text='Название:', font_size=14, color=COLOR_TEXT, size_hint=(1, None), height=20)
-        self.comment_input_layout.add_widget(comment_title_label)
-        self.comment_title_input = TextInput(hint_text='Короткое название', font_size=16, multiline=False, 
-                                              size_hint=(1, None), height=40, background_color=COLOR_BTN)
-        self.comment_input_layout.add_widget(self.comment_title_input)
-        
-        self.comment_text_input = TextInput(hint_text='Текст комментария', font_size=16, multiline=True,
-                                             size_hint=(1, None), height=70, background_color=COLOR_BTN)
-        self.comment_input_layout.add_widget(self.comment_text_input)
-        
-        self.layout.add_widget(self.comment_input_layout)
-        
-        # Попап для чтения комментария
-        self.read_popup = None
-        
-        self.add_widget(self.layout)
-        self.update_icon_positions()
-        # Анимация мерцания
-        Clock.schedule_interval(self._animate, 1/30.0)
-    
-    def update_icon_positions(self):
-        s = get_back_btn_size()
-        ms = get_small_icon_size()
-        self.back_btn.pos = (10, self.height - s - 10)
-        self.menu_btn.pos = (self.width - ms - 10, self.height - ms - 10)
-        self.flashlight_btn.pos = (self.width/2 - ms/2, self.height - ms - 10)
-        self.eye_btn.pos = (10, 10)
-        self.confirm_btn.pos = (10, 10)
-        self.delete_btn.pos = (self.width - ms - 10, self.height - ms - 10)
-    
-    def on_size(self, *args):
-        self.update_icon_positions()
-        self.draw_overlays()
-    
-    def enter_view_mode(self, row=None, col=None):
-        """Вход в режим просмотра"""
-        app = App.get_running_app()
-        arr = app.array_data
-        if not arr:
-            return
-        
-        if row is not None and col is not None:
-            self.current_row = row
-            self.current_col = col
+    def _refresh_image(self):
+        self.img_area.clear_widgets()
+        if self.tmp_image and os.path.exists(self.tmp_image):
+            self._img_widget = Image(source=self.tmp_image,
+                                     size_hint=(1, 1), pos_hint={"center_x": 0.5, "center_y": 0.5})
+            self.img_area.add_widget(self._img_widget)
         else:
-            self.current_row = arr.current_row
-            self.current_col = arr.current_col
-        
-        self.mode = 'view'
-        self.load_current_cell()
-    
-    def load_current_cell(self):
-        """Загрузка текущей ячейки"""
-        app = App.get_running_app()
-        arr = app.array_data
-        cell = arr.get_cell(self.current_row, self.current_col)
-        
-        if not cell.image_path or not os.path.exists(cell.image_path):
+            self.img_area.add_widget(Label(text="(изображение не загружено)", font_size=18))
+
+    def do_load_image(self, *_):
+        sm = self.manager
+        picker = sm.get_screen("file_picker")
+        picker.set_mode("pick_image", callback=self._on_image_picked)
+        sm.current = "file_picker"
+
+    def _on_image_picked(self, path):
+        self.tmp_image = path
+        self._refresh_image()
+
+    def do_confirm(self, *_):
+        if self.cell:
+            self.cell["name"] = self.name_input.text
+            self.cell["image"] = self.tmp_image
+        self.array_screen.rebuild_grid()
+        self.manager.current = "array_view"
+
+    def go_back(self):
+        self.manager.current = "array_view"
+
+
+# ---------------------------------------------------------------------------
+#  Экран: Простой файловый пикер (две кнопки + popup)
+# ---------------------------------------------------------------------------
+class FilePickerScreen(Screen):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.mode = ""
+        self.callback = None
+        self.save_data = None
+        self.layout = FloatLayout()
+        self.add_widget(self.layout)
+
+    def set_mode(self, mode, data=None, callback=None):
+        self.mode = mode
+        self.save_data = data
+        self.callback = callback
+        self._rebuild()
+
+    def _rebuild(self):
+        self.layout.clear_widgets()
+
+        back = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                      pos_hint={"x": 0.02, "top": 0.98})
+        back.bind(on_release=lambda *_: self.go_home())
+        self.layout.add_widget(back)
+
+        if self.mode in ("load", "pick_image", "save"):
+            box = BoxLayout(orientation="vertical", padding=40, spacing=20,
+                            size_hint=(0.85, 0.6),
+                            pos_hint={"center_x": 0.5, "center_y": 0.5})
+
+            if self.mode == "load":
+                box.add_widget(Label(text="Введите путь к файлу конфигурации массива (.json)",
+                                     font_size=18, size_hint_y=0.2))
+                self.path_input = TextInput(hint_text="/путь/к/файлу.json",
+                                           font_size=16, multiline=False,
+                                           size_hint_y=0.2)
+                box.add_widget(self.path_input)
+                btn = Button(text="Загрузить", font_size=22)
+                btn.bind(on_release=self._do_load)
+                box.add_widget(btn)
+
+            elif self.mode == "pick_image":
+                box.add_widget(Label(text="Введите путь к изображению",
+                                     font_size=18, size_hint_y=0.2))
+                self.path_input = TextInput(hint_text="/путь/к/файлу.png",
+                                           font_size=16, multiline=False,
+                                           size_hint_y=0.2)
+                box.add_widget(self.path_input)
+                btn = Button(text="Выбрать", font_size=22)
+                btn.bind(on_release=self._do_pick)
+                box.add_widget(btn)
+
+            elif self.mode == "save":
+                box.add_widget(Label(text="Введите имя папки для сохранения",
+                                     font_size=18, size_hint_y=0.2))
+                self.path_input = TextInput(hint_text="my_array", font_size=16,
+                                           multiline=False, size_hint_y=0.2)
+                box.add_widget(self.path_input)
+                btn = Button(text="Сохранить", font_size=22)
+                btn.bind(on_release=self._do_save)
+                box.add_widget(btn)
+
+            self.layout.add_widget(box)
+
+    def _do_load(self, *_):
+        path = self.path_input.text.strip()
+        if path and os.path.exists(path):
+            data = load_json(path)
+            if data:
+                sm = self.manager
+                av = sm.get_screen("array_view")
+                av.load_from_data(data)
+                sm.current = "array_view"
+                return
+        self._show_error("Файл не найден или повреждён")
+
+    def _do_pick(self, *_):
+        path = self.path_input.text.strip()
+        if path and os.path.exists(path):
+            if self.callback:
+                self.callback(path)
+            self.manager.current = "card_edit"
             return
+        self._show_error("Файл не найден")
+
+    def _do_save(self, *_):
+        name = self.path_input.text.strip()
+        if not name:
+            self._show_error("Введите имя")
+            return
+        ensure_dir(SAVE_DIR)
+        folder = os.path.join(SAVE_DIR, name)
+        ensure_dir(folder)
+        data = self.save_data
+        if not data:
+            return
+<<<<<<< HEAD
+=======
         
         self.image_view.load_image(cell.image_path)
         
@@ -2062,63 +1636,479 @@ class KotlovanApp(App):
         if not os.path.exists(array_dir):
             os.makedirs(array_dir)
         
+>>>>>>> 32dfbfd (new old progect)
         # Копируем изображения
-        import shutil
-        for key, cell in self.array_data.cells.items():
-            if cell.image_path and os.path.exists(cell.image_path):
-                dst = os.path.join(array_dir, cell.image_filename or os.path.basename(cell.image_path))
-                if os.path.abspath(cell.image_path) != os.path.abspath(dst):
-                    try:
-                        shutil.copy2(cell.image_path, dst)
-                    except:
-                        pass
-                # Обновляем путь в данных
-                cell.image_path = dst
-        
-        # Сохраняем конфиг
-        config_path = os.path.join(array_dir, 'config.json')
-        with open(config_path, 'w', encoding='utf-8') as f:
-            f.write(self.array_data.to_json())
-        
-        self.array_data.config_path = config_path
-        
+        for key, cell in data.get("cells", {}).items():
+            img = cell.get("image", "")
+            if img and os.path.exists(img):
+                dst = os.path.join(folder, os.path.basename(img))
+                try:
+                    shutil.copy2(img, dst)
+                    cell["image"] = dst
+                except Exception:
+                    pass
+        save_json(data, os.path.join(folder, "config.json"))
+
         # Переход в режим просмотра
-        self.sm.get_screen('view_mode').enter_view_mode()
-        self.sm.current = 'view_mode'
-    
-    def show_error(self, message):
-        content = BoxLayout(orientation='vertical', padding=20)
-        lbl = Label(text=message, color=COLOR_TEXT)
-        content.add_widget(lbl)
-        btn = Button(text='OK', size_hint_y=None, height=40, background_color=COLOR_ACCENT, color=COLOR_TEXT)
-        content.add_widget(btn)
-        popup = Popup(title='Ошибка', content=content, size_hint=(0.7, 0.3),
-                      background_color=COLOR_BG, title_color=COLOR_TEXT)
-        btn.bind(on_press=popup.dismiss)
+        sm = self.manager
+        viewer = sm.get_screen("viewer")
+        viewer.load_array(data)
+        sm.current = "viewer"
+
+    def _show_error(self, msg):
+        popup = Popup(title="Ошибка", content=Label(text=msg, font_size=18),
+                      size_hint=(0.7, 0.4))
         popup.open()
-    
-    def on_pause(self):
-        # Сохранение состояния при сворачивании
-        if self.array_data:
-            self.save_state()
-        return True
-    
-    def on_stop(self):
-        # Сохранение состояния при выходе
-        if self.array_data:
-            self.save_state()
-        self.save_settings()
-    
-    def save_state(self):
-        """Сохранение состояния в кэш"""
-        cache_path = os.path.join(os.path.expanduser('~'), '.kotlovan_cache.json')
+
+    def go_home(self):
+        self.manager.current = "main"
+
+
+# ---------------------------------------------------------------------------
+#  Экран: Режим просмотра (основной)
+# ---------------------------------------------------------------------------
+class ViewerScreen(Screen):
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.layout = FloatLayout()
+        self.add_widget(self.layout)
+
+        self.array_data = None
+        self.rows = 0
+        self.cols = 0
+        self.cells = {}
+        self.cur_row = 0
+        self.cur_col = 0
+        self.zoom = 1.0
+        self.vp_x = 0.0  # смещение viewport относительно общей точки
+        self.vp_y = 0.0
+        self.eye_mode = 0  # 0=normal, 1=blink, 2=equal
+        self.icon_scale = 1.0
+        self.icon_alpha = 1.0
+        self.mode = "view"  # view, common_point, comment_place, comment_edit
+        self.comment_circles = []
+        self._touches = {}
+        self._pinch_dist = 0
+        self._swipe_start = None
+        self._img_widget = None
+        self._comment_circle_blink = None
+        self._editing_comment = None
+        self._comment_radius = 20
+        self._flashlight_on = False
+
+    # ----------------- загрузка -----------------
+    def load_array(self, data):
+        self.array_data = data
+        self.rows = data.get("rows", 1)
+        self.cols = data.get("cols", 1)
+        self.cells = {}
+        for key, cdata in data.get("cells", {}).items():
+            r, c = cdata["row"], cdata["col"]
+            self.cells[(r, c)] = {
+                "name": cdata.get("name", ""),
+                "image": cdata.get("image", ""),
+                "common_point": cdata.get("common_point"),
+                "own_position": cdata.get("own_position", False),
+                "comments": cdata.get("comments", []),
+            }
+        self.cur_row = 0
+        self.cur_col = 0
+        # Инициализация общих точек
+        self._init_common_points()
+        self._show_cell()
+
+    def _init_common_points(self):
+        for (r, c), cell in self.cells.items():
+            if cell["common_point"] is None and not cell["own_position"]:
+                # Центр изображения — используем заглушку (500,500)
+                cell["common_point"] = [500, 500]
+
+    # ----------------- отображение -----------------
+    def on_pre_enter(self, *_):
+        self._show_cell()
+
+    def _show_cell(self):
+        self.layout.clear_widgets()
+        self.mode = "view"
+        self.comment_circles = []
+
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        if not cell:
+            self.layout.add_widget(Label(text="Нет данных", font_size=24,
+                                         pos_hint={"center_x": 0.5, "center_y": 0.5}))
+            self._add_overlay()
+            return
+
+        img_path = cell["image"]
+        if img_path and os.path.exists(img_path):
+            self._img_widget = Image(source=img_path,
+                                     size_hint=(1, 1),
+                                     pos_hint={"center_x": 0.5, "center_y": 0.5},
+                                     allow_stretch=True,
+                                     keep_ratio=False)
+            self.layout.add_widget(self._img_widget)
+        else:
+            self.layout.add_widget(Label(text="Изображение не загружено",
+                                         font_size=22,
+                                         pos_hint={"center_x": 0.5, "center_y": 0.5}))
+
+        # Кружки комментариев
+        self._draw_comments(cell)
+
+        # Overlay UI
+        self._add_overlay()
+
+    def _add_overlay(self):
+        # Кнопка возврата (верхний левый)
+        back = Button(text="<", font_size=30,
+                      size_hint=(0.1 * self.icon_scale, 0.08 * self.icon_scale),
+                      pos_hint={"x": 0.02, "top": 0.98},
+                      opacity=self.icon_alpha)
+        back.bind(on_release=lambda *_: self.go_back())
+        self.layout.add_widget(back)
+
+        # Иконка глаза (нижний левый)
+        eye_texts = ["👁", "👁", "👁"]
+        eye = Button(text=eye_texts[self.eye_mode],
+                     font_size=int(20 * self.icon_scale),
+                     size_hint=(0.1 * self.icon_scale, 0.08 * self.icon_scale),
+                     pos_hint={"x": 0.02, "y": 0.02},
+                     opacity=self.icon_alpha)
+        eye.bind(on_release=self._toggle_eye)
+        self.layout.add_widget(eye)
+
+        # Иконка фонарика (середина сверху)
+        flashlight = Button(text="🔦", font_size=int(20 * self.icon_scale),
+                            size_hint=(0.1 * self.icon_scale, 0.08 * self.icon_scale),
+                            pos_hint={"center_x": 0.5, "top": 0.98},
+                            opacity=self.icon_alpha)
+        flashlight.bind(on_release=self._toggle_flashlight)
+        self.layout.add_widget(flashlight)
+
+        # Контекстное меню (правый верхний)
+        ctx = Button(text="☰", font_size=int(20 * self.icon_scale),
+                     size_hint=(0.1 * self.icon_scale, 0.08 * self.icon_scale),
+                     pos_hint={"right": 0.98, "top": 0.98},
+                     opacity=self.icon_alpha)
+        ctx.bind(on_release=self._show_context_menu)
+        self.layout.add_widget(ctx)
+
+    def go_back(self):
+        self.manager.current = "main"
+
+    # ----------------- контекстное меню -----------------
+    def _show_context_menu(self, *_):
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        own_pos = "true" if cell and cell["own_position"] else "false"
+
+        content = BoxLayout(orientation="vertical", spacing=10, padding=10)
+
+        btn_cp = Button(text="Общая точка", font_size=18)
+        btn_cp.bind(on_release=lambda *_: self._enter_common_point())
+        content.add_widget(btn_cp)
+
+        btn_op = Button(text=f"Свое положение: {own_pos}", font_size=18)
+        btn_op.bind(on_release=lambda *_: self._toggle_own_position())
+        content.add_widget(btn_op)
+
+        btn_comment = Button(text="Установить комментарий", font_size=18)
+        btn_comment.bind(on_release=lambda *_: self._enter_comment_place())
+        content.add_widget(btn_comment)
+
+        btn_settings = Button(text="Настройки", font_size=18)
+        btn_settings.bind(on_release=lambda *a: self._show_settings(popup))
+        content.add_widget(btn_settings)
+
+        popup = Popup(title="Меню", content=content,
+                      size_hint=(0.7, 0.5))
+        popup.open()
+
+    def _show_settings(self, parent_popup, *_):
+        parent_popup.dismiss()
+        content = BoxLayout(orientation="vertical", spacing=10, padding=10)
+
+        content.add_widget(Label(text="Размер иконок", font_size=16))
+        sl_size = Slider(min=0.1, max=3.0, value=self.icon_scale)
+        lbl_size_val = Label(text=f"x{self.icon_scale:.1f}", font_size=16)
+        sl_size.bind(value=lambda *_a, v: lbl_size_val.setter("text")(lbl_size_val, f"x{v:.1f}"))
+        sl_size.bind(value=lambda *_a, v: setattr(self, "icon_scale", v))
+        content.add_widget(sl_size)
+        content.add_widget(lbl_size_val)
+
+        content.add_widget(Label(text="Прозрачность иконок", font_size=16))
+        sl_alpha = Slider(min=0.1, max=1.0, value=self.icon_alpha)
+        lbl_alpha_val = Label(text=f"{int(self.icon_alpha * 100)}%", font_size=16)
+        sl_alpha.bind(value=lambda *_a, v: lbl_alpha_val.setter("text")(lbl_alpha_val, f"{int(v*100)}%"))
+        sl_alpha.bind(value=lambda *_a, v: setattr(self, "icon_alpha", v))
+        content.add_widget(sl_alpha)
+        content.add_widget(lbl_alpha_val)
+
+        btn_close = Button(text="Закрыть", font_size=18)
+        btn_close.bind(on_release=lambda *_: settings_popup.dismiss())
+        content.add_widget(btn_close)
+
+        settings_popup = Popup(title="Настройки", content=content,
+                               size_hint=(0.7, 0.5))
+        settings_popup.open()
+
+    # ----------------- общая точка -----------------
+    def _enter_common_point(self, *_):
+        self.mode = "common_point"
+        self.layout.clear_children_ui = True
+        self.layout.clear_widgets()
+
+        # Только кнопка возврата
+        back = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                      pos_hint={"x": 0.02, "top": 0.98})
+        back.bind(on_release=lambda *_: self._show_cell())
+        self.layout.add_widget(back)
+
+        # Кружок в центре
+        self._comment_circle_blink = BlinkCircle(radius=15)
+        self._comment_circle_blink.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+        self.layout.add_widget(self._comment_circle_blink)
+
+        # Кнопка подтверждения (нижний левый)
+        confirm = Button(text="✓", font_size=30, size_hint=(0.1, 0.08),
+                         pos_hint={"x": 0.02, "y": 0.02})
+        confirm.bind(on_release=self._confirm_common_point)
+        self.layout.add_widget(confirm)
+
+    def _confirm_common_point(self, *_):
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        if cell:
+            # Сохраняем центр viewport как общую точку
+            cp = cell["common_point"] or [500, 500]
+            cp[0] += self.vp_x
+            cp[1] += self.vp_y
+            cell["common_point"] = cp
+        if self._comment_circle_blink:
+            self._comment_circle_blink.stop()
+            self._comment_circle_blink = None
+        self._show_cell()
+
+    # ----------------- своё положение -----------------
+    def _toggle_own_position(self, *_):
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        if cell:
+            cell["own_position"] = not cell["own_position"]
+        self._show_cell()
+
+    # ----------------- комментарий -----------------
+    def _enter_comment_place(self, *_):
+        self.mode = "comment_place"
+        self.layout.clear_widgets()
+
+        back = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                      pos_hint={"x": 0.02, "top": 0.98})
+        back.bind(on_release=lambda *_: self._show_cell())
+        self.layout.add_widget(back)
+
+        self._comment_circle_blink = BlinkCircle(radius=20)
+        self._comment_circle_blink.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+        self.layout.add_widget(self._comment_circle_blink)
+
+        confirm = Button(text="✓", font_size=30, size_hint=(0.1, 0.08),
+                         pos_hint={"x": 0.02, "y": 0.02})
+        confirm.bind(on_release=self._confirm_comment_place)
+        self.layout.add_widget(confirm)
+
+    def _confirm_comment_place(self, *_):
+        if self._comment_circle_blink:
+            self._comment_circle_blink.stop()
+        self.mode = "comment_edit"
+        self._enter_comment_edit()
+
+    def _enter_comment_edit(self, existing=None):
+        self.layout.clear_widgets()
+
+        back = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
+                      pos_hint={"x": 0.02, "top": 0.98})
+        back.bind(on_release=lambda *_: self._show_cell())
+        self.layout.add_widget(back)
+
+        box = BoxLayout(orientation="vertical", padding=30, spacing=15,
+                        size_hint=(0.85, 0.7),
+                        pos_hint={"center_x": 0.5, "center_y": 0.5})
+
+        self._comment_title_input = TextInput(hint_text="Короткое название",
+                                              font_size=18, multiline=False,
+                                              size_hint_y=0.15)
+        box.add_widget(self._comment_title_input)
+
+        self._comment_text_input = TextInput(hint_text="Текст комментария",
+                                             font_size=18, multiline=True,
+                                             size_hint_y=0.5)
+        box.add_widget(self._comment_text_input)
+
+        row_btns = BoxLayout(orientation="horizontal", spacing=15, size_hint_y=0.15)
+
+        btn_del = Button(text="Удалить", font_size=18)
+        btn_del.bind(on_release=self._delete_comment)
+        row_btns.add_widget(btn_del)
+
+        btn_save = Button(text="Сохранить", font_size=18)
+        btn_save.bind(on_release=self._save_comment)
+        row_btns.add_widget(btn_save)
+        box.add_widget(row_btns)
+
+        self.layout.add_widget(box)
+
+        if existing:
+            self._comment_title_input.text = existing.get("title", "")
+            self._comment_text_input.text = existing.get("text", "")
+
+    def _save_comment(self, *_):
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        if cell:
+            comment = {
+                "x": 500 + self.vp_x,
+                "y": 500 + self.vp_y,
+                "size": self._comment_radius,
+                "title": self._comment_title_input.text,
+                "text": self._comment_text_input.text,
+            }
+            cell["comments"].append(comment)
+        self._show_cell()
+
+    def _delete_comment(self, *_):
+        content = BoxLayout(orientation="vertical", padding=10, spacing=10)
+        content.add_widget(Label(text="Удалить комментарий?", font_size=18))
+        row = BoxLayout(orientation="horizontal", spacing=10)
+        btn_yes = Button(text="Да", font_size=18)
+        btn_no = Button(text="Нет", font_size=18)
+        row.add_widget(btn_yes)
+        row.add_widget(btn_no)
+        content.add_widget(row)
+
+        popup = Popup(title="Подтверждение", content=content,
+                      size_hint=(0.6, 0.35))
+
+        btn_yes.bind(on_release=lambda *_: self._do_delete_comment(popup))
+        btn_no.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
+
+    def _do_delete_comment(self, popup, *_):
+        popup.dismiss()
+        cell = self.cells.get((self.cur_row, self.cur_col))
+        if cell and self._editing_comment and self._editing_comment in cell["comments"]:
+            cell["comments"].remove(self._editing_comment)
+            self._editing_comment = None
+        self._show_cell()
+
+    # ----------------- кружки комментариев на экране -----------------
+    def _draw_comments(self, cell):
+        """Рисует кружки комментариев для текущей ячейки."""
+        for i, com in enumerate(cell.get("comments", [])):
+            cx = com["x"]
+            cy = com["y"]
+            r = com["size"] if self.eye_mode == 0 else 20
+
+            circle = CommentCircle(cx, cy, r,
+                                   title=com.get("title", ""),
+                                   text=com.get("text", ""),
+                                   comment_id=i)
+            with circle.canvas:
+                Color(1, 0.3, 0.3, 0.7 if self.eye_mode != 1 else 0.5)
+                Ellipse(pos=(cx - r, cy - r), size=(r * 2, r * 2))
+                if com.get("title"):
+                    Color(1, 1, 1, 1)
+            self.layout.add_widget(circle)
+            self.comment_circles.append(circle)
+
+    # ----------------- глаз -----------------
+    def _toggle_eye(self, *_):
+        self.eye_mode = (self.eye_mode + 1) % 3
+        self._show_cell()
+
+    # ----------------- фонарик -----------------
+    def _toggle_flashlight(self, *_):
+        self._flashlight_on = not self._flashlight_on
         try:
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                f.write(self.array_data.to_json())
-        except:
+            from plyer import flash
+            if self._flashlight_on:
+                flash.on()
+            else:
+                flash.off()
+        except Exception:
             pass
 
+    # ----------------- навигация -----------------
+    def _next_cell_row(self, direction):
+        new_col = self.cur_col + direction
+        if 0 <= new_col < self.cols:
+            self.cur_col = new_col
+            self._show_cell()
 
-# ========== Точка входа ==========
-if __name__ == '__main__':
+    def _next_cell_col(self, direction):
+        new_row = self.cur_row + direction
+        if 0 <= new_row < self.rows:
+            self.cur_row = new_row
+            self._show_cell()
+
+    # ----------------- touch -----------------
+    def on_touch_down(self, touch):
+        if self.mode != "view":
+            return super().on_touch_down(touch)
+        self._touches[touch.id] = touch
+        if len(self._touches) == 1:
+            self._swipe_start = (touch.x, touch.y)
+        elif len(self._touches) == 2:
+            ids = list(self._touches.keys())
+            t1, t2 = self._touches[ids[0]], self._touches[ids[1]]
+            self._pinch_dist = ((t1.x - t2.x) ** 2 + (t1.y - t2.y) ** 2) ** 0.5
+        return True
+
+    def on_touch_move(self, touch):
+        if self.mode != "view":
+            return super().on_touch_move(touch)
+        if touch.id not in self._touches:
+            return True
+        if len(self._touches) == 2:
+            ids = list(self._touches.keys())
+            t1, t2 = self._touches[ids[0]], self._touches[ids[1]]
+            dist = ((t1.x - t2.x) ** 2 + (t1.y - t2.y) ** 2) ** 0.5
+            if self._pinch_dist > 0:
+                self.zoom *= dist / self._pinch_dist
+                self.zoom = max(0.1, min(10.0, self.zoom))
+            self._pinch_dist = dist
+            # Перемещение
+            self.vp_x += (t1.dx + t2.dx) / 2
+            self.vp_y += (t1.dy + t2.dy) / 2
+        return True
+
+    def on_touch_up(self, touch):
+        if self.mode != "view":
+            return super().on_touch_up(touch)
+        if touch.id in self._touches:
+            del self._touches[touch.id]
+
+        if len(self._touches) == 0 and self._swipe_start:
+            dx = touch.x - self._swipe_start[0]
+            dy = touch.y - self._swipe_start[1]
+            threshold = 50
+            if abs(dx) > threshold and abs(dx) > abs(dy):
+                self._next_cell_row(1 if dx < 0 else -1)
+            elif abs(dy) > threshold and abs(dy) > abs(dx):
+                self._next_cell_col(1 if dy < 0 else -1)
+            self._swipe_start = None
+        return True
+
+
+# ---------------------------------------------------------------------------
+#  Приложение
+# ---------------------------------------------------------------------------
+class KotlovanApp(App):
+    def build(self):
+        sm = ScreenManager()
+        sm.add_widget(MainMenuScreen(name="main"))
+        sm.add_widget(CreateArrayScreen(name="create_array"))
+        sm.add_widget(ArrayViewScreen(name="array_view"))
+        sm.add_widget(CardEditScreen(name="card_edit"))
+        sm.add_widget(FilePickerScreen(name="file_picker"))
+        sm.add_widget(ViewerScreen(name="viewer"))
+        return sm
+
+
+if __name__ == "__main__":
     KotlovanApp().run()
