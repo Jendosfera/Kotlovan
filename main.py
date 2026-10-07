@@ -252,7 +252,7 @@ class ArrayViewScreen(Screen):
                     scroll.add_widget(btn)
         self.layout.add_widget(scroll)
 
-<<<<<<< HEAD
+### <<<<<<< HEAD
     def add_back(self):
         self.back_btn = Button(text="<", font_size=30, size_hint=(0.1, 0.08),
                                pos_hint={"x": 0.02, "top": 0.98})
@@ -304,7 +304,7 @@ class ArrayViewScreen(Screen):
 
     def rebuild_grid(self):
         self._rebuild()
-=======
+### =======
 # ========== Экран выбора размера массива ==========
 class ArraySizeScreen(Screen):
     def __init__(self, **kwargs):
@@ -679,7 +679,7 @@ class GridViewScreen(Screen):
     def save_array(self, *args):
         app = App.get_running_app()
         app.show_file_chooser('save_array')
->>>>>>> 32dfbfd (new old progect)
+### >>>>>>> 32dfbfd (new old progect)
 
 
 # ---------------------------------------------------------------------------
