@@ -497,7 +497,8 @@ class ArraySizeScreen(Screen):
         self.add_widget(layout)
     
     def go_back(self):
-        self.sm.current = 'main_menu'
+        app = App.get_running_app()
+        app.sm.current = 'main_menu'
     
     def confirm(self, *args):
         try:
@@ -642,8 +643,29 @@ class GridViewScreen(Screen):
         self.plus_widgets = []
         self.layout = None
         self.build_ui()
-    
+        #исправление on_size привязывает к изменению размера экрана
+        self.bind(size=self.on_size)
+        self.build_ui()
     def build_ui(self):
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
+
+        # Верхняя панель: назад + название + сохранить
+        top_bar = BoxLayout(size_hint_y=None, height=60, spacing=10)
+
+        self.back_btn = IconButton(icon_type='back', size_hint=(None, None), size=(50, 50))
+        self.back_btn.bind(on_press=lambda *a: setattr(self.manager, 'current', 'main_menu'))
+        top_bar.add_widget(self.back_btn)
+
+        title = Label(text='Сетка массива', font_size=20, size_hint_x=1)
+        top_bar.add_widget(title)
+
+        # Кнопка сохранения (дискета)
+        self.save_btn = IconButton(icon_type='save', size_hint=(None, None), size=(50, 50))
+        self.save_btn.bind(on_press=self.on_save_array)
+        top_bar.add_widget(self.save_btn)
+
+        layout.add_widget(top_bar)
+
         self.clear_widgets()
         self.layout = FloatLayout()
         
@@ -668,6 +690,15 @@ class GridViewScreen(Screen):
         self.layout.add_widget(self.scroll)
         
         self.add_widget(self.layout)
+        return layout
+    
+    
+
+    def on_save_array(self, *args):
+        app = App.get_running_app()
+        # Запрашиваем у приложения выбор папки/файла через системный диалог
+        app.show_file_chooser('save_array')
+
     
     def on_size(self, *args):
         if self.layout:
@@ -754,7 +785,7 @@ class GridViewScreen(Screen):
         app = App.get_running_app()
         # Проверяем, что координаты в пределах массива
         arr = app.array_data
-        if row < 0 or row >= arr.rows or col < 0 or col >= arr.cols:
+        if not arr or row < 0 or row >= arr.rows or col < 0 or col >= arr.cols:
             return
         
         editor = app.sm.get_screen('card_edit')
@@ -762,7 +793,8 @@ class GridViewScreen(Screen):
         app.sm.current = 'card_edit'
     
     def go_back(self):
-        self.sm.current = 'main_menu'
+        app = App.get_running_app()
+        app.sm.current = 'main_menu'
     
     def save_array(self, *args):
         app = App.get_running_app()
@@ -1854,11 +1886,58 @@ class ViewModeScreen(Screen):
 class KotlovanApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.array_data = None
+        self.array_data = ArrayData()
         self.file_chooser_popup = None
         self.pending_action = None
         self.save_dir = os.path.join(os.path.expanduser('~'), 'Kotlovan')
         self.config_file = None
+        
+    def show_file_chooser(self, action, initial_path=None):
+        """
+        action: 'save_array' — сохранить весь массив (папка)
+                'load_config' — загрузить config.json
+        """
+        self.pending_action = action
+
+        content = BoxLayout(orientation='vertical')
+        file_chooser = FileChooserListView()
+        if initial_path and os.path.exists(initial_path):
+            file_chooser.path = initial_path
+        else:
+            # Для Android лучше начинать с user_data_dir — это гарантированно доступно
+            file_chooser.path = self.user_data_dir
+
+        content.add_widget(file_chooser)
+
+        btn_box = BoxLayout(size_hint_y=None, height=50)
+        btn_ok = Button(text='Выбрать', size_hint_x=0.5)
+        btn_cancel = Button(text='Отмена', size_hint_x=0.5)
+
+        def on_select(*args):
+            selected = file_chooser.selection
+            if selected:
+                chosen_path = selected[0]
+                if action == 'save_array':
+                    # Передаём путь в экран сетки, где лежит save_array_to_dir
+                    grid_screen = self.root.get_screen('grid_view')
+                    if grid_screen:
+                        grid_screen.save_array_to_dir(chosen_path)
+                elif action == 'load_config':
+                    self.load_array_config(chosen_path)
+            popup.dismiss()
+
+        btn_ok.bind(on_press=on_select)
+        btn_cancel.bind(on_press=popup.dismiss)
+        btn_box.add_widget(btn_ok)
+        btn_box.add_widget(btn_cancel)
+        content.add_widget(btn_box)
+
+        popup = Popup(
+            title='Выберите папку для сохранения',
+            content=content,
+            size_hint=(0.9, 0.8)
+        )
+        popup.open()
     
     def build(self):
         Window.clearcolor = (0.1, 0.1, 0.15, 1)
@@ -1936,7 +2015,7 @@ class KotlovanApp(App):
         
         btn_select.bind(on_press=on_select)
         btn_cancel.bind(on_press=on_cancel)
-        fc.bind(on_submit=lambda x, y: on_select() if y else None)
+        #fc.bind(on_submit=lambda x, y: on_select() if y else None)
         
         popup.open()
     
